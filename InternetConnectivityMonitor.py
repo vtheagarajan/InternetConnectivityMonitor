@@ -103,7 +103,7 @@ def main():
                 send_email(
                     "Internet Restored",
                     f"Internet was down from {outage_start} to {outage_end}.\n"
-                    f"Total downtime: {outage_duration:.2f} minutes."
+                    f"Total downtime: {outage_duration:.2f} seconds."
                 )
                 log_outage_to_csv(outage_start, outage_end, outage_duration)
                 outage_start = None
