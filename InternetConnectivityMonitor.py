@@ -26,6 +26,7 @@ SMTP_PORT = os.environ.get("SMTP_PORT")
 OUTAGE_LOG_FILE = "./Logs/outage_log.csv"  # Path to CSV file
 CONNECTION_LOG_FILE = "./Logs/connection_log.csv"
 SIMULATE_FAILURE_FOR_TESTING = False
+DAILY_REPORT_TIME = os.environ.get("DAILY_REPORT_TIME")
 
 #create Logs directory if it doesn't exist
 if not os.path.exists("./Logs"):
@@ -89,11 +90,66 @@ def log_connection_to_csv(log_time, isConnected):
     except:
         print("Failed to write to connection log")
 
+#Funtion to get the number of checks performed over the last 24 hours from connection_log.csv
+# Also return the outage records from outage_log.csv during that time
+def getLast24HrReport():
+    try:
+        with open(CONNECTION_LOG_FILE, mode='r') as file:
+            reader = csv.reader(file)
+            next(reader)  # Skip the header row
+            last_24_hours = datetime.now() - timedelta(days=1)
+            checks_last_24_hours = 0
+            outage_records = []
+            with open(OUTAGE_LOG_FILE, mode='r') as outage_file:
+                outage_reader = csv.reader(outage_file)
+                next(outage_reader)  # Skip the header row
+                for row in outage_reader:
+                    date = datetime.strptime(row[0], '%Y-%m-%d')
+                    if date >= last_24_hours:
+                        outage_records.append(row)
+            for row in reader:
+                log_time = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
+                if log_time >= last_24_hours:
+                    checks_last_24_hours += 1
+            return checks_last_24_hours, outage_records
+    except:
+        print("Failed to read connection log")
+        return 0, []
+    
+
+
 def main():
     global outage_start, outage_reported
 
     # Main loop
     while True:
+        #DAILY_REPORT_TIME format will '%H:%M:%S'. Need to append this time value to the current date 
+        # to get the full date-time for current date
+        # Get current date
+        current_date = datetime.now().date()
+
+        # Parse the time from environment variable with seconds included
+        daily_report_time = datetime.strptime(DAILY_REPORT_TIME, '%H:%M:%S').time()
+
+        # Combine current date with the time from environment variable
+        daily_report_datetime = datetime.combine(current_date, daily_report_time)
+        
+        #get the absolute value of the time difference in seconds
+        diff_secs = abs((datetime.now() - daily_report_datetime).total_seconds())
+        print(f"Seconds away from report time: {diff_secs}")
+
+        #check if the current time is within CHECK_INTERVAL seonds from the environment variable for DAILY_REPORT_TIME
+        if diff_secs <= CHECK_INTERVAL:
+            print(f"Daily report time reached, so sening daily report emaill")
+            #get the number of checks performed over the last 24 hours
+            checks_last_24_hours, outage_records = getLast24HrReport()
+            #send email with the number of checks performed over the last 24 hours
+            send_email(
+                "Daily Report",
+                f"Number of checks performed over the last 24 hours: {checks_last_24_hours}\n"
+                f"Outage records: {outage_records}"
+            )
+        
         isConnected = is_connected()
         if isConnected:
             if outage_reported:
