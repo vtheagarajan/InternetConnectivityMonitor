@@ -66,6 +66,10 @@ def is_connected():
             return True
         
     except requests.ConnectionError:
+        log_error_to_file("Connection error")
+        return False
+    except Exception as ex:
+        log_error_to_file(f"Failed to check internet connectivity: {ex}")
         return False
 
 # Function to log outage details to CSV
