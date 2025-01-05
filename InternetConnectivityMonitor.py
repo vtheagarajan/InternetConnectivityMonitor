@@ -7,6 +7,7 @@ import random
 from argparse import ArgumentParser
 import os
 import dotenv
+import shutil
 
 dotenv.load_dotenv()
 
@@ -106,33 +107,53 @@ def log_error_to_file(error_message):
     except:
         print("Failed to write to error log")
 
-#Funtion to get the number of checks performed over the last 24 hours from connection_log.csv
+#Function to get the number of checks performed over the last 24 hours from connection_log.csv
 # Also return the outage records from outage_log.csv during that time
 def getLast24HrReport():
     try:
+        # Get current date for file renaming
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        
+        # Create archive directory if it doesn't exist
+        archive_dir = os.path.join('Logs', 'archive_connection_logs')
+        os.makedirs(archive_dir, exist_ok=True)
+
+        # Count total rows and rename/move file
+        checks_last_24_hours = 0
         with open(CONNECTION_LOG_FILE, mode='r') as file:
             reader = csv.reader(file)
-            next(reader)  # Skip the header row
-            last_24_hours = datetime.now() - timedelta(days=1)
-            checks_last_24_hours = 0
-            outage_records = []
-            with open(OUTAGE_LOG_FILE, mode='r') as outage_file:
-                outage_reader = csv.reader(outage_file)
-                next(outage_reader)  # Skip the header row
-                for row in outage_reader:
-                    date = datetime.strptime(row[0], '%Y-%m-%d')
-                    if date >= last_24_hours:
-                        outage_records.append(row)
-            for row in reader:
-                log_time = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
-                if log_time >= last_24_hours:
-                    checks_last_24_hours += 1
-            return checks_last_24_hours, outage_records
-    except:
-        print("Failed to read connection log")
-        return 0, []
-    
+            next(reader)  # Skip header
+            checks_last_24_hours = sum(1 for row in reader)  # Count all rows
 
+        # Create new filename with date
+        file_name = os.path.basename(CONNECTION_LOG_FILE)
+        base_name, ext = os.path.splitext(file_name)
+        new_filename = f"{base_name}_{current_date}{ext}"
+        archive_path = os.path.join(archive_dir, new_filename)
+
+        # Move file to archive
+        shutil.move(CONNECTION_LOG_FILE, archive_path)
+
+        # Get outage records for last 30 days
+        outage_records = []
+        last_30_days = datetime.now() - timedelta(days=30)
+        
+        with open(OUTAGE_LOG_FILE, mode='r') as outage_file:
+            outage_reader = csv.reader(outage_file)
+            next(outage_reader)  # Skip header
+            for row in outage_reader:
+                try:
+                    date = datetime.strptime(row[0], '%Y-%m-%d')
+                    if date >= last_30_days:
+                        outage_records.append(row)
+                except ValueError:
+                    continue  # Skip rows with invalid dates
+
+        return checks_last_24_hours, outage_records
+
+    except Exception as e:
+        print(f"Error in getLast24HrReport: {str(e)}")
+        return 0, []
 
 def main():
     global outage_start, outage_reported
@@ -174,7 +195,7 @@ def main():
                     outage_end = datetime.now()
                     outage_duration = (outage_end - outage_start).total_seconds()
                     send_email(
-                        "Internet Restored",
+                        "Internet connection was down",
                         f"Internet was down from {outage_start} to {outage_end}.\n"
                         f"Total downtime: {outage_duration:.2f} seconds."
                     )
