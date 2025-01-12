@@ -8,6 +8,8 @@ from argparse import ArgumentParser
 import os
 import dotenv
 import shutil
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 dotenv.load_dotenv()
 
@@ -39,14 +41,59 @@ outage_start = None
 #track if we are currently in an outage
 outage_reported = False
 
+def format_outage_records_table(outage_records):
+    """
+    Format outage records as an HTML table.
+    
+    Args:
+        outage_records: List of outage record rows
+        
+    Returns:
+        str: HTML formatted table
+    """
+    html_table = """
+    <table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
+        <tr style="background-color: #f2f2f2;">
+            <th style="padding: 8px; text-align: left;">Date</th>
+            <th style="padding: 8px; text-align: left;">Start Time</th>
+            <th style="padding: 8px; text-align: left;">End Time</th>
+            <th style="padding: 8px; text-align: left;">Duration (seconds)</th>
+        </tr>
+    """
+    
+    for record in outage_records:
+        html_table += f"""
+        <tr>
+            <td style="padding: 8px;">{record[0]}</td>
+            <td style="padding: 8px;">{record[1]}</td>
+            <td style="padding: 8px;">{record[2]}</td>
+            <td style="padding: 8px;">{record[3]}</td>
+        </tr>
+        """
+    
+    html_table += "</table>"
+    return html_table
+
 # Function to send email
 def send_email(subject, body):
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
-            message = f"Subject: {subject}\n\n{body}"
-            server.sendmail(EMAIL_FROM, EMAIL_TO, message)
+            
+            # Create MIME message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = EMAIL_FROM
+            msg['To'] = EMAIL_TO
+            
+            # Attach HTML content
+            html_part = MIMEText(body, 'html')
+            msg.attach(html_part)
+            
+            # Send email
+            server.send_message(msg)
+            
         message = f"Subject: {subject} Body: {body}\n"
         open("./Logs/email.txt", "a").write(message)
     except Exception as e:
@@ -107,6 +154,31 @@ def log_error_to_file(error_message):
     except:
         print("Failed to write to error log")
 
+def get_last_30_days_outages() -> list:
+    """
+    Get outage records for the last 30 days from the outage log file.
+    
+    Returns:
+        list: List of outage records within the last 30 days
+    """
+    outage_records = []
+    last_30_days = datetime.now() - timedelta(days=30)
+    
+    with open(OUTAGE_LOG_FILE, mode='r') as outage_file:
+        outage_reader = csv.reader(outage_file)
+        #next(outage_reader)  # Skip header
+        for row in outage_reader:
+            try:
+                date = datetime.strptime(row[0], '%Y-%m-%d')
+                if date >= last_30_days:
+                    outage_records.append(row)
+            except ValueError:
+                continue  # Skip rows with invalid dates
+    
+    return outage_records
+
+
+
 #Function to get the number of checks performed over the last 24 hours from connection_log.csv
 # Also return the outage records from outage_log.csv during that time
 def getLast24HrReport():
@@ -135,20 +207,8 @@ def getLast24HrReport():
         shutil.move(CONNECTION_LOG_FILE, archive_path)
 
         # Get outage records for last 30 days
-        outage_records = []
-        last_30_days = datetime.now() - timedelta(days=30)
-        
-        with open(OUTAGE_LOG_FILE, mode='r') as outage_file:
-            outage_reader = csv.reader(outage_file)
-            next(outage_reader)  # Skip header
-            for row in outage_reader:
-                try:
-                    date = datetime.strptime(row[0], '%Y-%m-%d')
-                    if date >= last_30_days:
-                        outage_records.append(row)
-                except ValueError:
-                    continue  # Skip rows with invalid dates
-
+        outage_records = get_last_30_days_outages()
+    
         return checks_last_24_hours, outage_records
 
     except Exception as e:
@@ -182,10 +242,21 @@ def main():
                 #get the number of checks performed over the last 24 hours
                 checks_last_24_hours, outage_records = getLast24HrReport()
                 #send email with the number of checks performed over the last 24 hours
+                formatted_table = format_outage_records_table(outage_records)
+                email_content = f"""
+                    <html>
+                    <body>
+                    <p>Number of checks performed over the last 24 hours: {checks_last_24_hours}</p>
+                    <p>Internet connectivity outages for the last 30 days:</p>
+                    {formatted_table}
+                    <p>Total outages: {len(outage_records)}</p>
+                    </body>
+                    </html>
+                """
+                
                 send_email(
                     "Daily Report",
-                    f"Number of checks performed over the last 24 hours: {checks_last_24_hours}\n"
-                    f"Outage records: {outage_records}"
+                    email_content
                 )
             
             isConnected = is_connected()
