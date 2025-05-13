@@ -19,7 +19,7 @@ if os.environ.get("URL_TO_CHECK") is None:
     exit(1)
 
 # Configuration
-CHECK_INTERVAL = 2  # seconds
+CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', 10))  # seconds
 URL_TO_CHECK = os.environ.get("URL_TO_CHECK")
 EMAIL_FROM = os.environ.get("EMAIL_FROM")
 EMAIL_TO = os.environ.get("EMAIL_TO")
