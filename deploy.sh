@@ -75,6 +75,9 @@ rsync -av --exclude '*.log' \
          --exclude '__pycache__/' \
          --exclude 'deploy.sh' \
          --exclude '.venv/' \
+         --exclude 'myenv/' \
+         --exclude 'node_modules/' \
+         --exclude 'Logs/' \
          ./ ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_APP_DIR}/
 
 # Setup virtual environment and install dependencies

@@ -157,13 +157,16 @@ def log_error_to_file(error_message):
 def get_last_30_days_outages() -> list:
     """
     Get outage records for the last 30 days from the outage log file.
-    
+
     Returns:
         list: List of outage records within the last 30 days
     """
+    if not os.path.exists(OUTAGE_LOG_FILE):
+        return []
+
     outage_records = []
     last_30_days = datetime.now() - timedelta(days=30)
-    
+
     with open(OUTAGE_LOG_FILE, mode='r') as outage_file:
         outage_reader = csv.reader(outage_file)
         #next(outage_reader)  # Skip header
@@ -174,7 +177,7 @@ def get_last_30_days_outages() -> list:
                     outage_records.append(row)
             except ValueError:
                 continue  # Skip rows with invalid dates
-    
+
     return outage_records
 
 
@@ -191,9 +194,11 @@ def getLast24HrReport():
         os.makedirs(archive_dir, exist_ok=True)
 
         # Count total rows and rename/move file
+        # NUL bytes can appear in the file due to SD card corruption on power loss;
+        # strip them per line so csv.reader doesn't raise "line contains NUL"
         checks_last_24_hours = 0
         with open(CONNECTION_LOG_FILE, mode='r') as file:
-            reader = csv.reader(file)
+            reader = csv.reader(line.replace('\0', '') for line in file)
             next(reader)  # Skip header
             checks_last_24_hours = sum(1 for row in reader)  # Count all rows
 
@@ -206,22 +211,24 @@ def getLast24HrReport():
         # Move file to archive
         shutil.move(CONNECTION_LOG_FILE, archive_path)
 
-        # Get outage records for last 30 days
-        outage_records = get_last_30_days_outages()
-    
-        return checks_last_24_hours, outage_records
-
     except Exception as e:
         print(f"Error in getLast24HrReport: {str(e)}")
         return 0, []
 
+    # Get outage records for last 30 days (outside the try/except so a missing
+    # outage file doesn't zero-out the already-computed checks count)
+    outage_records = get_last_30_days_outages()
+    return checks_last_24_hours, outage_records
+
 def main():
     global outage_start, outage_reported
+
+    last_report_date = None
 
     try:
         # Main loop
         while True:
-            #DAILY_REPORT_TIME format will '%H:%M:%S'. Need to append this time value to the current date 
+            #DAILY_REPORT_TIME format will '%H:%M:%S'. Need to append this time value to the current date
             # to get the full date-time for current date
             # Get current date
             current_date = datetime.now().date()
@@ -231,14 +238,16 @@ def main():
 
             # Combine current date with the time from environment variable
             daily_report_datetime = datetime.combine(current_date, daily_report_time)
-            
+
             #get the absolute value of the time difference in seconds
             diff_secs = abs((datetime.now() - daily_report_datetime).total_seconds())
             print(f"Seconds away from report time: {diff_secs}")
 
-            #check if the current time is within CHECK_INTERVAL seonds from the environment variable for DAILY_REPORT_TIME
-            if diff_secs <= CHECK_INTERVAL:
-                print(f"Daily report time reached, so sening daily report emaill")
+            #check if the current time is within CHECK_INTERVAL seconds from the environment variable for DAILY_REPORT_TIME
+            # and that we haven't already sent the report today
+            if diff_secs <= CHECK_INTERVAL and last_report_date != current_date:
+                print(f"Daily report time reached, sending daily report email")
+                last_report_date = current_date
                 #get the number of checks performed over the last 24 hours
                 checks_last_24_hours, outage_records = getLast24HrReport()
                 #send email with the number of checks performed over the last 24 hours
